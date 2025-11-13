@@ -11,9 +11,7 @@ app_choice = st.sidebar.selectbox(
     ["-- Select --", "📥 Input Validation App", "🧰 Data Post Processing Tool"]
 )
 
-# =====================================================================
-# APP 1: INPUT VALIDATION APP
-# =====================================================================
+
 if app_choice == "📥 Input Validation App":
     st.header("📥 Input Validation App")
 
@@ -45,7 +43,7 @@ if app_choice == "📥 Input Validation App":
             email_col = st.selectbox("Select Email Column", options)
             pan_col = st.selectbox("Select PAN Column", options)
 
-            # --- Validation Functions ---
+
             def clean_and_validate_name(name: str) -> bool:
                 if pd.isna(name) or not str(name).strip():
                     return None
@@ -101,7 +99,8 @@ if app_choice == "📥 Input Validation App":
                 if col == "Not provided":
                     return {"Field": field_name, "Total": "-", "Duplicates": "-", "Missing": "-", "Invalid": "-", "Valid": "-"}
                 total = len(data)
-                duplicates = data[col].duplicated(keep=False).sum()
+                data_duplicates=data[data[col].notna()]
+                duplicates = data_duplicates[col].duplicated(keep=False).sum()
                 missing = data[col].isna().sum() + (data[col].astype(str).str.strip() == "").sum()
                 valid_series = data[valid_col]
                 invalid = (valid_series == False).sum()
@@ -116,13 +115,10 @@ if app_choice == "📥 Input Validation App":
             summary_df = pd.DataFrame(summary_data).astype(str)
             st.dataframe(summary_df, use_container_width=True)
 
-# =====================================================================
-# APP 2: DATA POST PROCESSING TOOL
-# =====================================================================
 elif app_choice == "🧰 Data Post Processing Tool":
     st.header("🧰 Data Post Processing Tool")
 
-    # Helper functions (from your QA app)
+
     def drop_empty_columns(df): return df.dropna(axis=1, how='all')
 
     def drop_metadata_columns(df):
@@ -148,7 +144,6 @@ elif app_choice == "🧰 Data Post Processing Tool":
                     rows.append({'pan': row.get('pan'), 'gst': gstin})
         return pd.DataFrame(rows)
 
-    # AES constants
     IV = b'#cd\xe0\xcd\xb09>\xa1\x0f\xfe%l\xd5\xbe\xe3'
     KEY = b'Sixteen byte key'
     IV_HEX = IV.hex()
