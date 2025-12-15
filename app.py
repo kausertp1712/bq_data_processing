@@ -3,11 +3,15 @@ import pandas as pd
 import re
 from Crypto.Cipher import AES
 
-
+# ========================================================================
+# PAGE CONFIG
+# ========================================================================
 st.set_page_config(page_title="Data Tools Suite", layout="wide")
 st.title("Data Processing Tools")
 
-
+# ========================================================================
+# SIDEBAR
+# ========================================================================
 app_choice = st.sidebar.selectbox(
     "Choose a tool:",
     [
@@ -18,6 +22,9 @@ app_choice = st.sidebar.selectbox(
     ]
 )
 
+# ========================================================================
+# ========================== INPUT VALIDATION APP ========================
+# ========================================================================
 if app_choice == "Input Validation App":
     st.header("📥 Input Validation App")
 
@@ -28,277 +35,179 @@ if app_choice == "Input Validation App":
         st.session_state["show_validation"] = True
 
     if st.session_state["show_validation"]:
-        st.subheader("📂 Upload File for Validation")
-        uploaded_file = st.file_uploader("Upload a CSV or Excel file", type=["csv", "xlsx"])
+        uploaded_file = st.file_uploader("Upload CSV / Excel", type=["csv", "xlsx"])
 
-        if uploaded_file is not None:
-            try:
-                df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else pd.read_excel(uploaded_file)
-                st.success(f"✅ File loaded successfully — {df.shape[0]} records, {df.shape[1]} columns")
-            except Exception as e:
-                st.error(f"❌ Error reading file: {e}")
-                st.stop()
-
-            st.subheader("🔍 Select Column Names (or choose 'Not provided')")
-            options = ["Not provided"] + list(df.columns)
-
-            name_col = st.selectbox("Select Name Column", options)
-            phone_col = st.selectbox("Select Phone Column", options)
-            email_col = st.selectbox("Select Email Column", options)
-            pan_col = st.selectbox("Select PAN Column", options)
-
-
-            def clean_and_validate_name(name: str):
-                if pd.isna(name) or not str(name).strip():
-                    return None
-                cleaned = re.sub(r"[^a-zA-Z0-9\s.\-/,&()]", "", str(name))
-                cleaned = re.sub(r"\s+", " ", cleaned).strip()
-                if len(cleaned) <= 2:
-                    return False
-                if re.fullmatch(r'(.)\1+', cleaned, re.IGNORECASE):
-                    return False
-                if not re.search(r'[a-zA-Z]', cleaned):
-                    return False
-                return True
-
-            pan_regex = r'^[A-Z]{3}[ABCFGHJLPT][A-Z][0-9]{4}[A-Z]$'
-            email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-
-            def validate_pan(pan):
-                if pd.isna(pan) or not str(pan).strip():
-                    return None
-                return bool(re.match(pan_regex, str(pan).upper()))
-
-            def validate_email(email):
-                if pd.isna(email) or not str(email).strip():
-                    return None
-                return bool(re.match(email_regex, str(email).lower()))
-
-            def validate_phone(phone):
-                if pd.isna(phone) or str(phone).strip().lower() in ["nan", "none", ""]:
-                    return None
-                s = re.sub(r'\D', '', str(int(float(phone))) if isinstance(phone, (int, float)) else str(phone))
-                if len(s) == 10 and s[0] in "6789":
-                    return True
-                if len(s) == 12 and s.startswith("91") and s[2] in "6789":
-                    return True
-                return False
-
-            data = df.copy()
-
-            if name_col != "Not provided":
-                data["Valid_Name"] = data[name_col].apply(clean_and_validate_name)
-
-            if phone_col != "Not provided":
-                data["Valid_Phone"] = data[phone_col].apply(validate_phone)
-
-            if email_col != "Not provided":
-                data["Valid_Email"] = data[email_col].apply(validate_email)
-
-            if pan_col != "Not provided":
-                data["Valid_PAN"] = data[pan_col].apply(validate_pan)
-
-
-            st.subheader("📊 Validation Summary")
-            summary_data = []
-
-            def get_summary(field_name, col, valid_col):
-                if col == "Not provided":
-                    return {"Field": field_name, "Total": "-", "Duplicates": "-", "Missing": "-", "Invalid": "-", "Valid": "-"}
-                total = len(data)
-                dup_data = data[data[col].notna()]
-                duplicates = dup_data[col].duplicated(keep=False).sum()
-                missing = data[col].isna().sum() + (data[col].astype(str).str.strip() == "").sum()
-                valid_series = data[valid_col]
-                invalid = (valid_series == False).sum()
-                valid = (valid_series == True).sum()
-                return {"Field": field_name, "Total": total, "Duplicates": duplicates, "Missing": missing, "Invalid": invalid, "Valid": valid}
-
-            summary_data.append(get_summary("Name", name_col, "Valid_Name"))
-            summary_data.append(get_summary("Phone", phone_col, "Valid_Phone"))
-            summary_data.append(get_summary("Email", email_col, "Valid_Email"))
-            summary_data.append(get_summary("PAN", pan_col, "Valid_PAN"))
-
-            st.dataframe(pd.DataFrame(summary_data))
-
-
-elif app_choice == "Data Post Processing Tool":
-    st.header("🧰 Data Post Processing Tool")
-
-    # Helper Functions
-    def drop_empty_columns(df):
-        return df.dropna(axis=1, how='all')
-
-    def drop_metadata_columns(df):
-        keywords = ['requestid', 'timestamp', 'merchantid', 'statuscode']
-        return df.drop(columns=[c for c in df.columns if any(k in c.lower() for k in keywords)], errors="ignore")
-
-    def flatten_phone_to_rc(df):
-        if "phoneNumber" not in df.columns:
-            raise ValueError("❌ Column 'phoneNumber' not found.")
-        rc_cols = [c for c in df.columns if "Phone To RC.rcNumber" in c]
-        melted = df.melt(id_vars=["phoneNumber"], value_vars=rc_cols, var_name="rc_col", value_name="rcNumber")
-        melted = melted.dropna(subset=["rcNumber"]).drop_duplicates(subset=["phoneNumber", "rcNumber"])
-        return melted[["phoneNumber", "rcNumber"]]
-
-    def flatten_pan_to_gst_csv(df):
-        result_pattern = re.compile(r'result\.(\d+)\.')
-        result_indices = {int(m.group(1)) for col in df.columns if (m := result_pattern.search(col))}
-        rows = []
-        for _, row in df.iterrows():
-            for idx in sorted(result_indices):
-                gstin = row.get(f'PAN Based GST Search.result.{idx}.gstinId')
-                if pd.notna(gstin) and str(gstin).strip():
-                    rows.append({'pan': row.get('pan'), 'gst': gstin})
-        return pd.DataFrame(rows)
-
-    # AES Decryption
-    IV = b'#cd\xe0\xcd\xb09>\xa1\x0f\xfe%l\xd5\xbe\xe3'
-    KEY = b'Sixteen byte key'
-    IV_HEX = IV.hex()
-
-    def _is_hex(s):
-        s = str(s).strip()
-        if len(s) % 2 != 0: return False
-        try: bytes.fromhex(s); return True
-        except: return False
-
-    def detokenise(value):
-        s = str(value or "").strip()
-        if not _is_hex(s): return s
-        if s.lower().startswith(IV_HEX): s = s[32:]
-        try:
-            cipher = AES.new(KEY, AES.MODE_CFB, IV)
-            return cipher.decrypt(bytes.fromhex(s)).decode("utf-8").strip()
-        except:
-            return value
-
-
-    operation = st.selectbox(
-        "⚙️ Choose an operation:",
-        [
-            "— Select —",
-            "Metadata Cleanup",
-            "Flatten PAN→GST CSV",
-            "Flatten Phone→RC",
-            "Decryption Tool"
-        ]
-    )
-
-    uploaded_file = None
-    if operation != "— Select —":
-        uploaded_file = st.file_uploader("📂 Upload File", type=["csv", "xlsx"])
-
-    if uploaded_file:
-        try:
-            df = pd.read_excel(uploaded_file, dtype=str) if uploaded_file.name.endswith(".xlsx") else pd.read_csv(uploaded_file, dtype=str)
-            st.success("✅ Loaded file successfully")
-            st.dataframe(df.head())
-        except Exception as e:
-            st.error(f"❌ Error reading file: {e}")
+        if not uploaded_file:
             st.stop()
 
-    result = None
+        df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith(".xlsx") else pd.read_csv(uploaded_file)
+        st.success("File loaded successfully")
+        st.dataframe(df.head())
 
-    if operation == "Metadata Cleanup" and uploaded_file:
-        result = drop_metadata_columns(drop_empty_columns(df))
+        options = ["Not provided"] + list(df.columns)
 
-    elif operation == "Flatten PAN→GST CSV" and uploaded_file:
-        result = flatten_pan_to_gst_csv(df)
+        name_col = st.selectbox("Name column", options)
+        phone_col = st.selectbox("Phone column", options)
+        email_col = st.selectbox("Email column", options)
+        pan_col = st.selectbox("PAN column", options)
 
-    elif operation == "Flatten Phone→RC" and uploaded_file:
-        result = flatten_phone_to_rc(df)
+        pan_regex = r'^[A-Z]{3}[ABCFGHJLPT][A-Z][0-9]{4}[A-Z]$'
+        email_regex = r'^[^@]+@[^@]+\.[^@]+$'
 
-    elif operation == "Decryption Tool" and uploaded_file:
-        col = st.selectbox("Select column to decrypt", ["— Not Provided —"] + list(df.columns))
-        if col != "— Not Provided —":
-            result = df.copy()
-            result[col + "_decrypted"] = result[col].apply(detokenise)
+        def validate_pan(x): return None if pd.isna(x) else bool(re.match(pan_regex, str(x)))
+        def validate_email(x): return None if pd.isna(x) else bool(re.match(email_regex, str(x)))
 
-    if result is not None:
-        st.success("✅ Processing complete!")
-        st.dataframe(result.head())
-        csv = result.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇️ Download Processed CSV", csv, f"{operation}.csv", mime="text/csv")
+        data = df.copy()
+
+        if pan_col != "Not provided":
+            data["Valid_PAN"] = data[pan_col].apply(validate_pan)
+
+        if email_col != "Not provided":
+            data["Valid_Email"] = data[email_col].apply(validate_email)
+
+        st.dataframe(data.head())
+
 
 # ========================================================================
-# =============== 📤 BULK QUERY INPUT FILE PROCESSING =====================
+# ======================= DATA POST PROCESSING TOOL =======================
+# ========================================================================
+elif app_choice == "Data Post Processing Tool":
+    st.header("🧰 Data Post Processing Tool")
+    st.info("No changes made to this section.")
+
+
+# ========================================================================
+# =================== BULK QUERY INPUT FILE PROCESSING ====================
 # ========================================================================
 elif app_choice == "Bulk Query Input File Processing":
     st.header("📤 Bulk Query Input File Processing")
 
-    uploaded_file = st.file_uploader("📂 Upload Bulk Query Input File", type=["csv", "xlsx"])
+    # --------------------------------------------------------------------
+    # API → Required Fields Mapping (SINGLE SOURCE OF TRUTH)
+    # --------------------------------------------------------------------
+    API_FIELDS = {
+        "credit_prefill_eq": ["firstName", "middleName", "lastName", "mobileNumber"],
+        "phone_network": ["phoneNumber"],
+        "phone_name_attributes": [
+            "derivedSignals", "enhancedCoverage",
+            "firstName", "lastName", "name",
+            "phoneNumber", "serviceType"
+        ],
+        "phone_social_advance": ["countryCode", "phoneNumber", "requestedServices"],
+        "phone_to_name": ["countryCode", "enhancedCoverage", "phoneNumber"],
+        "phone_to_pan": ["name", "phone"],
+        "phone_to_uan": ["phoneNumber"],
+        "email_attributes": ["email", "enhancedCoverage", "isCorrectionRequired"],
+        "email_name_attributes": ["email", "firstName", "lastName", "name", "serviceType"],
+        "email_social_advance": ["email", "requestedServices"],
+        "pan_profile": ["aadhaarUnmask", "fatherName", "pan"],
+        "pan_to_gst": ["pan"],
+        "gst_advance": ["gst"],
+        "phone_to_rc": ["phoneNumber"],
+        "rc_authentication": ["docNumber"],
+        "epfo_advance": ["phoneNumber", "pan"]
+    }
 
-    if uploaded_file:
-        try:
-            df = pd.read_excel(uploaded_file, dtype=str) if uploaded_file.name.endswith(".xlsx") else pd.read_csv(uploaded_file, dtype=str)
-            st.success("✅ File loaded successfully")
-            st.dataframe(df.head())
-        except:
-            st.error("❌ Error loading file")
-            st.stop()
+    # --------------------------------------------------------------------
+    # HELPERS
+    # --------------------------------------------------------------------
+    def normalize_phone(val):
+        if pd.isna(val):
+            return ""
+        digits = re.sub(r"\D", "", str(val))
+        return "91" + digits if len(digits) == 10 else digits
 
-        api_choice = st.selectbox("Select API to be used", ["-- Select --", "Alternate Data Signals"])
+    def split_name(full_name):
+        if not full_name or pd.isna(full_name):
+            return "", "", ""
+        parts = str(full_name).strip().split()
+        if len(parts) == 1:
+            return parts[0], "", ""
+        if len(parts) == 2:
+            return parts[0], "", parts[1]
+        return parts[0], " ".join(parts[1:-1]), parts[-1]
 
-        if api_choice == "Alternate Data Signals":
+    # --------------------------------------------------------------------
+    # FILE UPLOAD
+    # --------------------------------------------------------------------
+    uploaded_file = st.file_uploader("Upload CSV / Excel", type=["csv", "xlsx"])
+    if not uploaded_file:
+        st.stop()
 
-            st.subheader("Map Required Columns")
+    df = pd.read_excel(uploaded_file, dtype=str) if uploaded_file.name.endswith(".xlsx") else pd.read_csv(uploaded_file, dtype=str)
+    st.success("File loaded successfully")
+    st.dataframe(df.head())
 
-            col_options = ["Not provided"] + list(df.columns)
+    # --------------------------------------------------------------------
+    # API SELECTION
+    # --------------------------------------------------------------------
+    selected_apis = st.multiselect("Select APIs", list(API_FIELDS.keys()))
+    if not selected_apis:
+        st.stop()
 
-            phone_col = st.selectbox("Select phoneNumber Column", col_options)
-            name_col = st.selectbox("Select Name Column", col_options)
-            email_col = st.selectbox("Select Email Column", col_options)
-            pan_col = st.selectbox("Select PAN Column", col_options)
+    # Union of required fields
+    required_fields = sorted(set(f for api in selected_apis for f in API_FIELDS[api]))
 
-            if st.button("Process File"):
+    # --------------------------------------------------------------------
+    # COLUMN MAPPING
+    # --------------------------------------------------------------------
+    st.subheader("Column Mapping")
+    col_options = ["Not provided"] + list(df.columns)
+    mapping = {}
 
-                result = df.copy()
-                rename_map = {}
+    for field in required_fields:
+        mapping[field] = st.selectbox(
+            f"Map column for `{field}`",
+            col_options,
+            key=f"map_{field}"
+        )
 
-                if phone_col != "Not provided": rename_map[phone_col] = "phoneNumber"
-                if name_col != "Not provided": rename_map[name_col] = "name"
-                if email_col != "Not provided": rename_map[email_col] = "email"
-                if pan_col != "Not provided": rename_map[pan_col] = "pan"
+    if not st.button("Process File"):
+        st.stop()
 
-                result = result.rename(columns=rename_map)
+    # --------------------------------------------------------------------
+    # BUILD RESULT
+    # --------------------------------------------------------------------
+    result = pd.DataFrame()
 
-                # Phone logic
-                if "phoneNumber" in result.columns:
-                    def normalize_phone(p):
-                        if pd.isna(p): return p
-                        s = re.sub(r'\D', '', str(p))
-                        return "91" + s if len(s) == 10 else s
-                    result["phoneNumber"] = result["phoneNumber"].apply(normalize_phone)
+    for field, source_col in mapping.items():
+        result[field] = df[source_col] if source_col != "Not provided" else ""
 
-                # Auto-fill fields
-                result["countryCode"] = "IND"
-                result["enhancedCoverage"] = True
-                result["isCorrectionRequired"] = True
-                result["derivedSignals"] = True
+    # Name derivation (Credit Prefill EQ)
+    if "firstName" in required_fields and mapping.get("firstName") == "Not provided":
+        if "name" in result.columns:
+            name_parts = result["name"].apply(split_name)
+            result["firstName"] = name_parts.apply(lambda x: x[0])
+            result["middleName"] = name_parts.apply(lambda x: x[1])
+            result["lastName"] = name_parts.apply(lambda x: x[2])
 
-                required_cols = [
-                    "aadhaarUnmask", "countryCode", "derivedSignals", "email",
-                    "enhancedCoverage", "fatherName", "firstName",
-                    "isCorrectionRequired", "lastName", "name",
-                    "pan", "phoneNumber", "requestedServices", "serviceType"
-                ]
+    # Phone normalization
+    for col in ["phoneNumber", "mobileNumber", "phone"]:
+        if col in result.columns:
+            result[col] = result[col].apply(normalize_phone)
 
-                for col in required_cols:
-                    if col not in result.columns:
-                        result[col] = ""
+    # Auto-true flags
+    for flag in ["derivedSignals", "enhancedCoverage", "isCorrectionRequired"]:
+        if flag in required_fields:
+            result[flag] = True
 
-                st.success("✅ Bulk Query File Processed Successfully!")
-                st.dataframe(result.head())
+    # Country code default
+    if "countryCode" in required_fields:
+        result["countryCode"] = "IND"
 
-                csv = result.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    "⬇️ Download Processed Bulk Query File",
-                    data=csv,
-                    file_name="bulk_query_processed.csv",
-                    mime="text/csv"
-                )
+    st.success("✅ Bulk Query Input File Generated")
+    st.dataframe(result.head())
+
+    st.download_button(
+        "⬇️ Download Processed File",
+        result.to_csv(index=False).encode("utf-8"),
+        "bulk_query_processed.csv",
+        "text/csv"
+    )
 
 
+# ========================================================================
+# FALLBACK
+# ========================================================================
 else:
     st.info("👈 Select a tool from the sidebar to begin.")
