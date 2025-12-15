@@ -1,6 +1,11 @@
 import streamlit as st
+import pandas as pd
 from helpers.io import load_file
-from helpers.validation import validate_pan, validate_email
+from helpers.validation import (
+    validate_pan,
+    validate_email,
+    compute_validation_summary
+)
 
 def render():
     st.header("📥 Input Validation App")
@@ -20,12 +25,27 @@ def render():
     email_col = st.selectbox("Email column", options)
     pan_col = st.selectbox("PAN column", options)
 
-    result = df.copy()
+    data = df.copy()
+    summary_rows = []
 
+    # ---------------- PAN ----------------
     if pan_col != "Not provided":
-        result["Valid_PAN"] = result[pan_col].apply(validate_pan)
+        data["Valid_PAN"] = data[pan_col].apply(validate_pan)
+        summary = compute_validation_summary(data, pan_col, "Valid_PAN")
+        summary_rows.append({"Field": "PAN", **summary})
 
+    # ---------------- EMAIL ----------------
     if email_col != "Not provided":
-        result["Valid_Email"] = result[email_col].apply(validate_email)
+        data["Valid_Email"] = data[email_col].apply(validate_email)
+        summary = compute_validation_summary(data, email_col, "Valid_Email")
+        summary_rows.append({"Field": "Email", **summary})
 
-    st.dataframe(result.head())
+    # ---------------- OUTPUT ----------------
+    st.subheader("📊 Validation Summary")
+    if summary_rows:
+        st.dataframe(pd.DataFrame(summary_rows))
+    else:
+        st.info("No fields selected for validation.")
+
+    st.subheader("📄 Data Preview")
+    st.dataframe(data.head())
