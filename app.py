@@ -28,44 +28,39 @@ app_choice = st.sidebar.selectbox(
 if app_choice == "Input Validation App":
     st.header("📥 Input Validation App")
 
-    if "show_validation" not in st.session_state:
-        st.session_state["show_validation"] = False
+    uploaded_file = st.file_uploader("Upload CSV / Excel", type=["csv", "xlsx"])
+    if not uploaded_file:
+        st.stop()
 
-    if st.button("Start Input Validation"):
-        st.session_state["show_validation"] = True
+    df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith(".xlsx") else pd.read_csv(uploaded_file)
+    st.success("File loaded successfully")
+    st.dataframe(df.head())
 
-    if st.session_state["show_validation"]:
-        uploaded_file = st.file_uploader("Upload CSV / Excel", type=["csv", "xlsx"])
+    options = ["Not provided"] + list(df.columns)
 
-        if not uploaded_file:
-            st.stop()
+    name_col = st.selectbox("Name column", options)
+    phone_col = st.selectbox("Phone column", options)
+    email_col = st.selectbox("Email column", options)
+    pan_col = st.selectbox("PAN column", options)
 
-        df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith(".xlsx") else pd.read_csv(uploaded_file)
-        st.success("File loaded successfully")
-        st.dataframe(df.head())
+    pan_regex = r'^[A-Z]{3}[ABCFGHJLPT][A-Z][0-9]{4}[A-Z]$'
+    email_regex = r'^[^@]+@[^@]+\.[^@]+$'
 
-        options = ["Not provided"] + list(df.columns)
+    def validate_pan(x):
+        return None if pd.isna(x) else bool(re.match(pan_regex, str(x)))
 
-        name_col = st.selectbox("Name column", options)
-        phone_col = st.selectbox("Phone column", options)
-        email_col = st.selectbox("Email column", options)
-        pan_col = st.selectbox("PAN column", options)
+    def validate_email(x):
+        return None if pd.isna(x) else bool(re.match(email_regex, str(x)))
 
-        pan_regex = r'^[A-Z]{3}[ABCFGHJLPT][A-Z][0-9]{4}[A-Z]$'
-        email_regex = r'^[^@]+@[^@]+\.[^@]+$'
+    data = df.copy()
 
-        def validate_pan(x): return None if pd.isna(x) else bool(re.match(pan_regex, str(x)))
-        def validate_email(x): return None if pd.isna(x) else bool(re.match(email_regex, str(x)))
+    if pan_col != "Not provided":
+        data["Valid_PAN"] = data[pan_col].apply(validate_pan)
 
-        data = df.copy()
+    if email_col != "Not provided":
+        data["Valid_Email"] = data[email_col].apply(validate_email)
 
-        if pan_col != "Not provided":
-            data["Valid_PAN"] = data[pan_col].apply(validate_pan)
-
-        if email_col != "Not provided":
-            data["Valid_Email"] = data[email_col].apply(validate_email)
-
-        st.dataframe(data.head())
+    st.dataframe(data.head())
 
 
 # ========================================================================
@@ -86,9 +81,9 @@ elif app_choice == "Bulk Query Input File Processing":
     # API FIELD DEFINITIONS
     # ------------------------------------------------------------------
     API_FIELDS = {
-        "credit_prefill_eq": ["firstName", "middleName", "lastName", "mobileNumber"],
+        "credit_prefill_eq": ["name", "firstName", "middleName", "lastName", "mobileNumber"],
         "phone_network": ["phoneNumber"],
-        "phone_name_attributes": ["firstName", "lastName", "name", "phoneNumber"],
+        "phone_name_attributes": ["name", "firstName", "lastName", "phoneNumber"],
         "phone_social_advance": ["phoneNumber"],
         "phone_to_name": ["phoneNumber"],
         "phone_to_pan": ["name", "phone"],
@@ -104,7 +99,6 @@ elif app_choice == "Bulk Query Input File Processing":
         "epfo_advance": ["phoneNumber", "pan"]
     }
 
-    # Fields that should NOT be mapped by user
     AUTO_FIELDS = {
         "aadhaarUnmask": "",
         "serviceType": "",
@@ -121,8 +115,8 @@ elif app_choice == "Bulk Query Input File Processing":
     def normalize_phone(val):
         if pd.isna(val):
             return ""
-        s = re.sub(r"\D", "", str(val))
-        return "91" + s if len(s) == 10 else s
+        digits = re.sub(r"\D", "", str(val))
+        return "91" + digits if len(digits) == 10 else digits
 
     def split_name(full_name):
         if not full_name or pd.isna(full_name):
@@ -141,13 +135,8 @@ elif app_choice == "Bulk Query Input File Processing":
     if not uploaded_file:
         st.stop()
 
-    df = (
-        pd.read_excel(uploaded_file, dtype=str)
-        if uploaded_file.name.endswith(".xlsx")
-        else pd.read_csv(uploaded_file, dtype=str)
-    )
-
-    st.success("✅ File loaded successfully")
+    df = pd.read_excel(uploaded_file, dtype=str) if uploaded_file.name.endswith(".xlsx") else pd.read_csv(uploaded_file, dtype=str)
+    st.success("File loaded successfully")
     st.dataframe(df.head())
 
     # ------------------------------------------------------------------
@@ -157,24 +146,61 @@ elif app_choice == "Bulk Query Input File Processing":
     if not selected_apis:
         st.stop()
 
-    # Required input fields (excluding auto fields)
-    required_fields = sorted(
-        set(f for api in selected_apis for f in API_FIELDS[api])
-    )
+    required_fields = sorted(set(f for api in selected_apis for f in API_FIELDS[api]))
+    is_credit_prefill = "credit_prefill_eq" in selected_apis
 
     # ------------------------------------------------------------------
-    # COLUMN MAPPING (ONLY REAL INPUT FIELDS)
+    # COLUMN MAPPING (SMART UX)
     # ------------------------------------------------------------------
     st.subheader("🔗 Column Mapping")
     col_options = ["Not provided"] + list(df.columns)
     mapping = {}
 
+    if is_credit_prefill:
+        st.info(
+            "ℹ️ If you only have a full name, map it to `name`. "
+            "The system will derive first, middle, and last names automatically."
+        )
+
+        mapping["name"] = st.selectbox(
+            "Map column for `name` (Full Name)",
+            col_options,
+            key="map_name"
+        )
+
+        name_provided = mapping["name"] != "Not provided"
+    else:
+        name_provided = False
+
     for field in required_fields:
+        if is_credit_prefill:
+            if field in {"firstName", "middleName", "lastName"} and name_provided:
+                continue
+            if field == "name":
+                continue
+
         mapping[field] = st.selectbox(
             f"Map column for `{field}`",
             col_options,
             key=f"map_{field}"
         )
+
+    # ------------------------------------------------------------------
+    # VALIDATION CHECK (CREDIT PREFILL)
+    # ------------------------------------------------------------------
+    if is_credit_prefill:
+        has_name = mapping.get("name") != "Not provided"
+        has_split = (
+            mapping.get("firstName") != "Not provided"
+            and mapping.get("lastName") != "Not provided"
+        )
+
+        if not has_name and not has_split:
+            st.warning(
+                "⚠️ Credit Prefill requires either a full `name` or "
+                "`firstName` and `lastName`. Please map at least one."
+            )
+            st.stop()
 
     if not st.button("Process File"):
         st.stop()
@@ -184,20 +210,20 @@ elif app_choice == "Bulk Query Input File Processing":
     # ------------------------------------------------------------------
     result = pd.DataFrame()
 
-    # Map provided fields
     for field, src in mapping.items():
         result[field] = df[src] if src != "Not provided" else ""
 
-    # Credit Prefill EQ name derivation
-    if (
-        "firstName" in required_fields
-        and mapping.get("firstName") == "Not provided"
-        and "name" in result.columns
-    ):
-        name_parts = result["name"].apply(split_name)
-        result["firstName"] = name_parts.apply(lambda x: x[0])
-        result["middleName"] = name_parts.apply(lambda x: x[1])
-        result["lastName"] = name_parts.apply(lambda x: x[2])
+    # CREDIT PREFILL NAME DERIVATION
+    if is_credit_prefill:
+        if (
+            mapping.get("firstName") == "Not provided"
+            and mapping.get("lastName") == "Not provided"
+            and "name" in result.columns
+        ):
+            name_parts = result["name"].apply(split_name)
+            result["firstName"] = name_parts.apply(lambda x: x[0])
+            result["middleName"] = name_parts.apply(lambda x: x[1])
+            result["lastName"] = name_parts.apply(lambda x: x[2])
 
     # Normalize phones
     for col in ["phoneNumber", "mobileNumber", "phone"]:
@@ -217,7 +243,6 @@ elif app_choice == "Bulk Query Input File Processing":
         "bulk_query_processed.csv",
         "text/csv"
     )
-
 
 # ========================================================================
 # FALLBACK
