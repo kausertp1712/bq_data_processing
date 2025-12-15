@@ -82,25 +82,21 @@ elif app_choice == "Data Post Processing Tool":
 elif app_choice == "Bulk Query Input File Processing":
     st.header("📤 Bulk Query Input File Processing")
 
-    # --------------------------------------------------------------------
-    # API → Required Fields Mapping (SINGLE SOURCE OF TRUTH)
-    # --------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # API FIELD DEFINITIONS
+    # ------------------------------------------------------------------
     API_FIELDS = {
         "credit_prefill_eq": ["firstName", "middleName", "lastName", "mobileNumber"],
         "phone_network": ["phoneNumber"],
-        "phone_name_attributes": [
-            "derivedSignals", "enhancedCoverage",
-            "firstName", "lastName", "name",
-            "phoneNumber", "serviceType"
-        ],
-        "phone_social_advance": ["countryCode", "phoneNumber", "requestedServices"],
-        "phone_to_name": ["countryCode", "enhancedCoverage", "phoneNumber"],
+        "phone_name_attributes": ["firstName", "lastName", "name", "phoneNumber"],
+        "phone_social_advance": ["phoneNumber"],
+        "phone_to_name": ["phoneNumber"],
         "phone_to_pan": ["name", "phone"],
         "phone_to_uan": ["phoneNumber"],
-        "email_attributes": ["email", "enhancedCoverage", "isCorrectionRequired"],
-        "email_name_attributes": ["email", "firstName", "lastName", "name", "serviceType"],
-        "email_social_advance": ["email", "requestedServices"],
-        "pan_profile": ["aadhaarUnmask", "fatherName", "pan"],
+        "email_attributes": ["email"],
+        "email_name_attributes": ["email", "firstName", "lastName", "name"],
+        "email_social_advance": ["email"],
+        "pan_profile": ["fatherName", "pan"],
         "pan_to_gst": ["pan"],
         "gst_advance": ["gst"],
         "phone_to_rc": ["phoneNumber"],
@@ -108,14 +104,25 @@ elif app_choice == "Bulk Query Input File Processing":
         "epfo_advance": ["phoneNumber", "pan"]
     }
 
-    # --------------------------------------------------------------------
+    # Fields that should NOT be mapped by user
+    AUTO_FIELDS = {
+        "aadhaarUnmask": "",
+        "serviceType": "",
+        "requestedServices": "",
+        "derivedSignals": True,
+        "enhancedCoverage": True,
+        "isCorrectionRequired": True,
+        "countryCode": "IND"
+    }
+
+    # ------------------------------------------------------------------
     # HELPERS
-    # --------------------------------------------------------------------
+    # ------------------------------------------------------------------
     def normalize_phone(val):
         if pd.isna(val):
             return ""
-        digits = re.sub(r"\D", "", str(val))
-        return "91" + digits if len(digits) == 10 else digits
+        s = re.sub(r"\D", "", str(val))
+        return "91" + s if len(s) == 10 else s
 
     def split_name(full_name):
         if not full_name or pd.isna(full_name):
@@ -127,31 +134,38 @@ elif app_choice == "Bulk Query Input File Processing":
             return parts[0], "", parts[1]
         return parts[0], " ".join(parts[1:-1]), parts[-1]
 
-    # --------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # FILE UPLOAD
-    # --------------------------------------------------------------------
-    uploaded_file = st.file_uploader("Upload CSV / Excel", type=["csv", "xlsx"])
+    # ------------------------------------------------------------------
+    uploaded_file = st.file_uploader("📂 Upload CSV / Excel", type=["csv", "xlsx"])
     if not uploaded_file:
         st.stop()
 
-    df = pd.read_excel(uploaded_file, dtype=str) if uploaded_file.name.endswith(".xlsx") else pd.read_csv(uploaded_file, dtype=str)
-    st.success("File loaded successfully")
+    df = (
+        pd.read_excel(uploaded_file, dtype=str)
+        if uploaded_file.name.endswith(".xlsx")
+        else pd.read_csv(uploaded_file, dtype=str)
+    )
+
+    st.success("✅ File loaded successfully")
     st.dataframe(df.head())
 
-    # --------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # API SELECTION
-    # --------------------------------------------------------------------
+    # ------------------------------------------------------------------
     selected_apis = st.multiselect("Select APIs", list(API_FIELDS.keys()))
     if not selected_apis:
         st.stop()
 
-    # Union of required fields
-    required_fields = sorted(set(f for api in selected_apis for f in API_FIELDS[api]))
+    # Required input fields (excluding auto fields)
+    required_fields = sorted(
+        set(f for api in selected_apis for f in API_FIELDS[api])
+    )
 
-    # --------------------------------------------------------------------
-    # COLUMN MAPPING
-    # --------------------------------------------------------------------
-    st.subheader("Column Mapping")
+    # ------------------------------------------------------------------
+    # COLUMN MAPPING (ONLY REAL INPUT FIELDS)
+    # ------------------------------------------------------------------
+    st.subheader("🔗 Column Mapping")
     col_options = ["Not provided"] + list(df.columns)
     mapping = {}
 
@@ -165,37 +179,36 @@ elif app_choice == "Bulk Query Input File Processing":
     if not st.button("Process File"):
         st.stop()
 
-    # --------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # BUILD RESULT
-    # --------------------------------------------------------------------
+    # ------------------------------------------------------------------
     result = pd.DataFrame()
 
-    for field, source_col in mapping.items():
-        result[field] = df[source_col] if source_col != "Not provided" else ""
+    # Map provided fields
+    for field, src in mapping.items():
+        result[field] = df[src] if src != "Not provided" else ""
 
-    # Name derivation (Credit Prefill EQ)
-    if "firstName" in required_fields and mapping.get("firstName") == "Not provided":
-        if "name" in result.columns:
-            name_parts = result["name"].apply(split_name)
-            result["firstName"] = name_parts.apply(lambda x: x[0])
-            result["middleName"] = name_parts.apply(lambda x: x[1])
-            result["lastName"] = name_parts.apply(lambda x: x[2])
+    # Credit Prefill EQ name derivation
+    if (
+        "firstName" in required_fields
+        and mapping.get("firstName") == "Not provided"
+        and "name" in result.columns
+    ):
+        name_parts = result["name"].apply(split_name)
+        result["firstName"] = name_parts.apply(lambda x: x[0])
+        result["middleName"] = name_parts.apply(lambda x: x[1])
+        result["lastName"] = name_parts.apply(lambda x: x[2])
 
-    # Phone normalization
+    # Normalize phones
     for col in ["phoneNumber", "mobileNumber", "phone"]:
         if col in result.columns:
             result[col] = result[col].apply(normalize_phone)
 
-    # Auto-true flags
-    for flag in ["derivedSignals", "enhancedCoverage", "isCorrectionRequired"]:
-        if flag in required_fields:
-            result[flag] = True
+    # Add auto fields
+    for col, val in AUTO_FIELDS.items():
+        result[col] = val
 
-    # Country code default
-    if "countryCode" in required_fields:
-        result["countryCode"] = "IND"
-
-    st.success("✅ Bulk Query Input File Generated")
+    st.success("✅ Bulk Query Input File Generated Successfully")
     st.dataframe(result.head())
 
     st.download_button(
