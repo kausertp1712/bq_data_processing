@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 from helpers.io import load_file
 from helpers.validation import (
-    validate_pan,
+    validate_name,
+    validate_phone,
     validate_email,
+    validate_pan,
     compute_validation_summary
 )
 
@@ -28,17 +30,29 @@ def render():
     data = df.copy()
     summary_rows = []
 
-    # ---------------- PAN ----------------
-    if pan_col != "Not provided":
-        data["Valid_PAN"] = data[pan_col].apply(validate_pan)
-        summary = compute_validation_summary(data, pan_col, "Valid_PAN")
-        summary_rows.append({"Field": "PAN", **summary})
+    # ---------------- NAME ----------------
+    if name_col != "Not provided":
+        data["Valid_Name"] = data[name_col].apply(validate_name)
+        summary = compute_validation_summary(data, name_col, "Valid_Name")
+        summary_rows.append({"Field": "Name", **summary})
+
+    # ---------------- PHONE ----------------
+    if phone_col != "Not provided":
+        data["Valid_Phone"] = data[phone_col].apply(validate_phone)
+        summary = compute_validation_summary(data, phone_col, "Valid_Phone")
+        summary_rows.append({"Field": "Phone", **summary})
 
     # ---------------- EMAIL ----------------
     if email_col != "Not provided":
         data["Valid_Email"] = data[email_col].apply(validate_email)
         summary = compute_validation_summary(data, email_col, "Valid_Email")
         summary_rows.append({"Field": "Email", **summary})
+
+    # ---------------- PAN ----------------
+    if pan_col != "Not provided":
+        data["Valid_PAN"] = data[pan_col].apply(validate_pan)
+        summary = compute_validation_summary(data, pan_col, "Valid_PAN")
+        summary_rows.append({"Field": "PAN", **summary})
 
     # ---------------- OUTPUT ----------------
     st.subheader("📊 Validation Summary")
@@ -47,5 +61,3 @@ def render():
     else:
         st.info("No fields selected for validation.")
 
-    st.subheader("📄 Data Preview")
-    st.dataframe(data.head())
