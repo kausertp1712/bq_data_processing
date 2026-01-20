@@ -5,7 +5,7 @@ from Crypto.Cipher import AES
 
 
 def render():
-    st.header("🧰 Data Post Processing Tool")
+    st.header("Data Post Processing Tool")
     st.caption("Clean, flatten, and decrypt enriched API response files")
 
     def drop_empty_columns(df):
