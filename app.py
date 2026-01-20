@@ -1,7 +1,7 @@
 import streamlit as st
-from pages.input_validation import render as render_validation
-from pages.bulk_query import render as render_bulk
-from pages.post_processing import render as render_post
+from sections.input_validation import render as render_validation
+from sections.bulk_query import render as render_bulk
+from sections.post_processing import render as render_post
 
 st.set_page_config(page_title="Data Tools Suite", layout="wide")
 st.title("Data Processing Tools")
