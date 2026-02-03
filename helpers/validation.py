@@ -68,7 +68,7 @@ def compute_validation_summary(df, raw_col, valid_col):
 
     duplicates = (
         df[df[raw_col].notna()][raw_col]
-        .duplicated(keep=False)
+        .duplicated()
         .sum()
     )
 
